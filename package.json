@@ -1,0 +1,19 @@
+{
+  "name": "binance-monitor",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "pm2 start server.js --name binance-monitor",
+    "stop": "pm2 delete binance-monitor || true",
+    "logs": "pm2 logs binance-monitor",
+    "restart": "pm2 restart binance-monitor"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "express": "^4.21.2",
+    "node-cache": "^5.1.2",
+    "sqlite3": "^5.1.7",
+    "ws": "^8.18.3"
+  }
+}

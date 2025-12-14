@@ -1,0 +1,254 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binance Perps Monitor</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        #container {
+            width: 90%;
+            margin: auto;
+            padding-top: 20px;
+        }
+        #controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            gap: 10px;
+            font-size: 14px;
+            flex-wrap: wrap;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        select, input[type="text"], input[type="number"] {
+            background: #1e1e1e;
+            color: #e0e0e0;
+            border: 1px solid #333;
+            padding: 4px 8px;
+        }
+        input[type="number"] {
+            width: 70px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #333;
+            text-align: right;
+        }
+        th {
+            cursor: pointer;
+        }
+        th .arrow {
+            display: inline-block;
+            width: 0;
+            height: 0;
+            margin-left: 5px;
+            vertical-align: middle;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+        }
+        th .arrow.asc {
+            border-bottom: 4px solid #e0e0e0;
+        }
+        th .arrow.desc {
+            border-top: 4px solid #e0e0e0;
+        }
+        a {
+            color: #00aaff;
+            text-decoration: none;
+        }
+        .no-spot {
+            color: #aaa;
+        }
+        .positive {
+            color: #00ff00;
+        }
+        .negative {
+            color: #ff0000;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <h1>Binance Perps Monitor</h1>
+        <div id="controls">
+            <div class="control-group">
+                <label for="searchInput">Search:</label>
+                <input type="text" id="searchInput" placeholder="Symbol or Name">
+            </div>
+            <div class="control-group">
+                <label for="spotFilter">Spot Filter:</label>
+                <select id="spotFilter">
+                    <option value="all">All</option>
+                    <option value="spot">Has Spot</option>
+                    <option value="no-spot">No Spot</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <span>Market Cap:</span>
+                <label>&gt;
+                    <input type="number" id="marketCapMin" placeholder="M" min="0">
+                </label>
+                <label>&lt;
+                    <input type="number" id="marketCapMax" placeholder="M" min="0">
+                </label>
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Symbol</th>
+                    <th>Name</th>
+                    <th>Spot</th>
+                    <th onclick="sortBy('price')">Price <span class="arrow"></span></th>
+                    <th onclick="sortBy('change24h')">24h <span class="arrow"></span></th>
+                    <th onclick="sortBy('fundingRate')">Funding Rate <span class="arrow"></span></th>
+                    <th onclick="sortBy('market_cap')">Market Cap <span class="arrow"></span></th>
+                    <th onclick="sortBy('fdv')">FDV <span class="arrow"></span></th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Data will be injected here -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const tbody = document.querySelector('tbody');
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const ws = new WebSocket(`${wsProtocol}://${window.location.host}`);
+        const spotFilterSelect = document.getElementById('spotFilter');
+        const searchInput = document.getElementById('searchInput');
+        const marketCapMinInput = document.getElementById('marketCapMin');
+        const marketCapMaxInput = document.getElementById('marketCapMax');
+
+        let data = [];
+        let sortKey = '';
+        let sortOrder = 'desc';
+
+        ws.onmessage = event => {
+            data = JSON.parse(event.data);
+            renderTable();
+        };
+
+        spotFilterSelect.addEventListener('change', renderTable);
+        searchInput.addEventListener('input', renderTable);
+        marketCapMinInput.addEventListener('input', renderTable);
+        marketCapMaxInput.addEventListener('input', renderTable);
+
+        function formatLargeNumber(value) {
+            if (!value) return '-';
+            const absValue = Math.abs(value);
+            const units = [
+                { limit: 1e12, suffix: 'T' },
+                { limit: 1e9, suffix: 'B' },
+                { limit: 1e6, suffix: 'M' },
+            ];
+
+            for (const unit of units) {
+                if (absValue >= unit.limit) {
+                    return `${(value / unit.limit).toFixed(2)}${unit.suffix}`;
+                }
+            }
+
+            return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function parseMillions(value) {
+            const num = parseFloat(value);
+            return Number.isFinite(num) ? num * 1e6 : null;
+        }
+
+        function getFilteredData() {
+            const filter = spotFilterSelect.value;
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            const minCap = parseMillions(marketCapMinInput.value);
+            const maxCap = parseMillions(marketCapMaxInput.value);
+
+            return data.filter(d => {
+                if (filter === 'spot' && !d.hasSpot) return false;
+                if (filter === 'no-spot' && d.hasSpot) return false;
+
+                if (searchTerm) {
+                    const symbolMatch = d.symbol.toLowerCase().includes(searchTerm);
+                    const nameMatch = d.name?.toLowerCase().includes(searchTerm);
+                    if (!symbolMatch && !nameMatch) return false;
+                }
+
+                if (minCap !== null && d.market_cap < minCap) return false;
+                if (maxCap !== null && d.market_cap > maxCap) return false;
+
+                return true;
+            });
+        }
+
+        function sortBy(key) {
+            if (sortKey === key) {
+                sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortKey = key;
+                sortOrder = 'desc';
+            }
+            renderTable();
+        }
+
+        function renderTable() {
+            const filtered = getFilteredData();
+            const viewData = sortKey ? [...filtered].sort((a, b) => {
+                if (sortOrder === 'asc') {
+                    return a[sortKey] - b[sortKey];
+                }
+                return b[sortKey] - a[sortKey];
+            }) : filtered;
+
+            tbody.innerHTML = viewData.map((d, index) => {
+                const changeClass = d.change24h >= 0 ? 'positive' : 'negative';
+                const spotLink = d.hasSpot && d.spotUrl
+                    ? `<a href="${d.spotUrl}" target="_blank">Spot</a>`
+                    : '<span class="no-spot">No Spot</span>';
+                const marketCapDisplay = formatLargeNumber(d.market_cap);
+                const fdvDisplay = formatLargeNumber(d.fdv);
+
+                return `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td><a href="https://www.binance.com/zh-CN/futures/${d.symbol}?type=perpetual" target="_blank">${d.symbol}</a></td>
+                        <td>${d.name}</td>
+                        <td>${spotLink}</td>
+                        <td>${d.price.toLocaleString()}</td>
+                        <td class="${changeClass}">${d.change24h.toFixed(2)}%</td>
+                        <td>${(d.fundingRate * 100).toFixed(4)}%</td>
+                        <td>${marketCapDisplay}</td>
+                        <td>${fdvDisplay}</td>
+                    </tr>
+                `;
+            }).join('');
+            updateSortArrows();
+        }
+
+        function updateSortArrows() {
+            document.querySelectorAll('th .arrow').forEach(arrow => {
+                arrow.classList.remove('asc', 'desc');
+            });
+            const activeArrow = document.querySelector(`th[onclick="sortBy('${sortKey}')"] .arrow`);
+            if (activeArrow) {
+                activeArrow.classList.add(sortOrder);
+            }
+        }
+    </script>
+</body>
+</html>
